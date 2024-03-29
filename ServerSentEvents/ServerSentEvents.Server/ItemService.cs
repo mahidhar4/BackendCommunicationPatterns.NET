@@ -1,29 +1,21 @@
-public record Item(string Name, double Price);
+public record Count(string Domain, double count, int PracticeId, int UserId);
 
-public class ItemService
+public class CountBrokerService
 {
-    private TaskCompletionSource<Item?> _tcs = new();
-    private long _id = 0;
-    
-    public void Reset()
+    private Count? cnt;
+
+    public void SetCount(Count _cnt)
     {
-        _tcs = new TaskCompletionSource<Item?>();
+        cnt = _cnt;
     }
 
-    public void NotifyNewItemAvailable()
+    public void ResetCount()
     {
-        _tcs.TrySetResult(new Item($"New Item {_id++}", Random.Shared.Next(0, 500)));
+        cnt = null;
     }
 
-    public Task<Item?> WaitForNewItem()
+    public Count? WaitForCount()
     {
-        // Simulate some delay in Item arrival
-        Task.Run(async () =>
-        {
-            await Task.Delay(TimeSpan.FromSeconds(Random.Shared.Next(0, 29)));
-            NotifyNewItemAvailable();
-        });
-        
-        return _tcs.Task;
+        return cnt;
     }
 }
