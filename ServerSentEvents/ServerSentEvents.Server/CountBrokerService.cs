@@ -14,7 +14,7 @@ public class CountBrokerService
         cnt = null;
     }
 
-    public Count? WaitForCount()
+    public Count? GetCountIfAvailaible()
     {
         return cnt;
     }
