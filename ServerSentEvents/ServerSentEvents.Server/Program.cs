@@ -15,11 +15,6 @@ builder.Services.AddSwaggerGen();
 var app = builder.Build();
 app.UseCors("AllowAnyOrigin");
 
-// configure exception middleware
-app.UseStatusCodePages(async statusCodeContext
-    => await Results.Problem(statusCode: statusCodeContext.HttpContext.Response.StatusCode)
-        .ExecuteAsync(statusCodeContext.HttpContext));
-
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
@@ -59,25 +54,32 @@ app.MapGet("/sse", async (CancellationToken ct, CountBrokerService brokerService
     // keep-alive the request to stream futher until unless cancellation token recieved from client side
     while (!ct.IsCancellationRequested)
     {
-        // sleeping for 5 secs
-        Thread.Sleep(5000);
+        // sleeping for 10 secs so that front end will be notified
+        Thread.Sleep(10000);
 
         // some business logic to prepare data
         // Get Holded Count
-        Count? countRecieved = brokerService.GetCountIfAvailaible(PracticeId, UserId, connectionId);
+        List<Count> countsByPractice = brokerService.GetCountIfAvailaible(PracticeId, connectionId);
 
         // sending the data back to client when connected client match found 
-        if (countRecieved != null)
+        if (countsByPractice != null)
         {
-            // Custom Events 
-            await clientContext.Response.WriteAsync($"event: " + countRecieved.Domain);
-            await clientContext.Response.WriteAsync($"\n\n");
-            await clientContext.Response.WriteAsync($"data: ");
-            await JsonSerializer.SerializeAsync(clientContext.Response.Body, countRecieved);
-            await clientContext.Response.WriteAsync($"\n\n");
+            foreach (Count count in countsByPractice)
+            {
+                if (count.UserId == UserId || count.UserId == null || count.UserId == 0)
+                {
+                    // Custom Events 
+                    // await clientContext.Response.WriteAsync($"event: " + count.Domain);
+                    // await clientContext.Response.WriteAsync($"\n\n");
+                    await clientContext.Response.WriteAsync($"data: ");
+                    await JsonSerializer.SerializeAsync(clientContext.Response.Body, count);
+                    await clientContext.Response.WriteAsync($"\n\n");
+                }
+                // clearing the count even if the user connected or not
+                brokerService.ResetCount(count);
+            }
+            // write at once to client
             await clientContext.Response.Body.FlushAsync();
-            // clearing the count
-            brokerService.ResetCount(countRecieved);
         }
     }
 }).WithName("SSE")
@@ -92,26 +94,25 @@ app.MapPost("/sse-count-refresh", async (CancellationToken ct, CountBrokerServic
     int UserId = Convert.ToInt32(clientContext.Request.Headers["X-User-ID"]);
 
     // Domain, Count, UserId --> Count Details
-    Count postedCount = await JsonSerializer.DeserializeAsync<Count>(clientContext.Request.Body);
+    PostCount postedCount = await JsonSerializer.DeserializeAsync<PostCount>(clientContext.Request.Body);
 
     if (postedCount != null)
     {
-        Count prepared = new Count(postedCount.Domain, postedCount.count,
-   postedCount.PracticeId, postedCount.UserId, DateTime.Now, Guid.NewGuid());
+        List<Count> preparedList = new List<Count>();
+        //inserting all the records of counts for different users
+        foreach (int ToUserId in postedCount.UserIds)
+        {
+            Count prepared = new Count(postedCount.Domain, postedCount.count, PracticeId, ToUserId, DateTime.Now, Guid.NewGuid());
+            preparedList.Add(prepared);
+        }
 
         // Notifying New Count to the Broker Service
-        brokerService.SetCount(prepared);
-
+        brokerService.SetCount(preparedList);
         // send some response back to client to notify it's success
-        await JsonSerializer.SerializeAsync(clientContext.Response.Body, prepared);
+        await JsonSerializer.SerializeAsync(clientContext.Response.Body, new { Message = "Success" });
     }
-
 
 }).WithName("SSE-REFRESH")
 .WithOpenApi();
-
-
-// example 1
-app.MapGet("/", () => "Hello, World!");
 
 app.Run();
