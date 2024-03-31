@@ -52,8 +52,9 @@ app.MapGet("/sse", async (CancellationToken ct, CountBrokerService brokerService
     clientContext.Response.Headers.Add("Content-Type", "text/event-stream");
 
     // Retrieving Client Details
-    var PracticeId = clientContext.Request.Headers["X-Practice-ID"];
-    var UserId = clientContext.Request.Headers["X-User-ID"];
+    int PracticeId = Convert.ToInt32(clientContext.Request.Headers["X-Practice-ID"]);
+    int UserId = Convert.ToInt32(clientContext.Request.Headers["X-User-ID"]);
+    Guid connectionId = Guid.NewGuid();
 
     // keep-alive the request to stream futher until unless cancellation token recieved from client side
     while (!ct.IsCancellationRequested)
@@ -63,7 +64,7 @@ app.MapGet("/sse", async (CancellationToken ct, CountBrokerService brokerService
 
         // some business logic to prepare data
         // Get Holded Count
-        Count? countRecieved = brokerService.GetCountIfAvailaible();
+        Count? countRecieved = brokerService.GetCountIfAvailaible(PracticeId, UserId, connectionId);
 
         // sending the data back to client when connected client match found 
         if (countRecieved != null)
@@ -76,7 +77,7 @@ app.MapGet("/sse", async (CancellationToken ct, CountBrokerService brokerService
             await clientContext.Response.WriteAsync($"\n\n");
             await clientContext.Response.Body.FlushAsync();
             // clearing the count
-            brokerService.ResetCount();
+            brokerService.ResetCount(countRecieved);
         }
     }
 }).WithName("SSE")
@@ -93,13 +94,19 @@ app.MapPost("/sse-count-refresh", async (CancellationToken ct, CountBrokerServic
     // Domain, Count, UserId --> Count Details
     Count postedCount = await JsonSerializer.DeserializeAsync<Count>(clientContext.Request.Body);
 
-    Count prepared = new Count(postedCount.Domain, postedCount.count, 
-    postedCount.PracticeId, postedCount.UserId);
+    if (postedCount != null)
+    {
+        Count prepared = new Count(postedCount.Domain, postedCount.count,
+   postedCount.PracticeId, postedCount.UserId, DateTime.Now, Guid.NewGuid());
 
-    // Notifying New Count to the Broker Service
-    brokerService.SetCount(prepared);
+        // Notifying New Count to the Broker Service
+        brokerService.SetCount(prepared);
 
-     await JsonSerializer.SerializeAsync(clientContext.Response.Body, prepared);
+        // send some response back to client to notify it's success
+        await JsonSerializer.SerializeAsync(clientContext.Response.Body, prepared);
+    }
+
+
 }).WithName("SSE-REFRESH")
 .WithOpenApi();
 
